@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -16,15 +17,23 @@ class _AuthState extends State<Auth> {
   var _isLogin = true;
   var enteredEmail = '';
   var enteredPassword = '';
+  var isLoading = false;
+  var username = '';
 
   final _formkey = GlobalKey<FormState>();
-  void _submit() {
+  void _submit() async {
     final isValid = _formkey.currentState!.validate();
-    if (!isValid) {}
+    if (!isValid) {
+      return;
+    }
     _formkey.currentState!.save();
+
     if (_isLogin) {
+      setState(() {
+        isLoading = true;
+      });
       try {
-        final userCredential = _firebase.signInWithEmailAndPassword(
+        _firebase.signInWithEmailAndPassword(
           email: enteredEmail,
           password: enteredPassword,
         );
@@ -36,13 +45,22 @@ class _AuthState extends State<Auth> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(error.message ?? "authentication falied")),
         );
+      } finally {
+        setState(() {
+          isLoading = false;
+        });
       }
     } else {
       try {
-        final userCredential = _firebase.createUserWithEmailAndPassword(
+        final userCredential = await _firebase.createUserWithEmailAndPassword(
           email: enteredEmail,
           password: enteredPassword,
         );
+
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userCredential.user!.uid)
+            .set({'username': username, 'email': enteredEmail});
       } on FirebaseAuthException catch (error) {
         if (error.code == 'email-already-in-use') {
           //...
@@ -51,7 +69,14 @@ class _AuthState extends State<Auth> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(error.message ?? "authentication falied")),
         );
+      } finally {
+        setState(() {
+          isLoading = false;
+        });
       }
+      setState(() {
+        isLoading = false;
+      });
     }
   }
 
@@ -82,6 +107,22 @@ class _AuthState extends State<Auth> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if(!_isLogin)
+                        TextFormField(
+                          decoration: InputDecoration(label: Text("Username")),
+                          enableSuggestions: false,
+                          validator: (value) {
+                            if (value == null ||
+                                value.isEmpty ||
+                                value.trim().length < 4) {
+                              return "please enter a valid username";
+                            }
+                            return null;
+                          },
+                          onSaved: (newValue) {
+                            username = newValue!;
+                          },
+                        ),
                         TextFormField(
                           decoration: InputDecoration(
                             label: Text("INPUT EMAIL"),
@@ -102,6 +143,7 @@ class _AuthState extends State<Auth> {
 
                           textCapitalization: TextCapitalization.none,
                         ),
+
                         TextFormField(
                           decoration: InputDecoration(label: Text("Password")),
                           obscureText: true,
@@ -116,22 +158,25 @@ class _AuthState extends State<Auth> {
                           },
                         ),
                         SizedBox(height: 12),
-                        ElevatedButton(
-                          onPressed: _submit,
-                          child: Text(_isLogin ? "Login" : "Signup"),
-                        ),
-                        ElevatedButton(
-                          onPressed: () {
-                            setState(() {
-                              _isLogin = !_isLogin;
-                            });
-                          },
-                          child: Text(
-                            _isLogin
-                                ? "Create an account"
-                                : "already have an account",
+                        if (isLoading) const CircularProgressIndicator(),
+                        if (!isLoading)
+                          ElevatedButton(
+                            onPressed: _submit,
+                            child: Text(_isLogin ? "Login" : "Signup"),
                           ),
-                        ),
+                        if (!isLoading)
+                          ElevatedButton(
+                            onPressed: () {
+                              setState(() {
+                                _isLogin = !_isLogin;
+                              });
+                            },
+                            child: Text(
+                              _isLogin
+                                  ? "Create an account"
+                                  : "already have an account",
+                            ),
+                          ),
                       ],
                     ),
                   ),
